@@ -1,0 +1,61 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: MLV.bt
+//   Authors: Timothy Nelson
+//   Version: 0.01
+//   Purpose: Parse MLV files
+//  Category: Video
+// File Mask: N/A
+//  ID Bytes: N/A
+//   History: N/A
+//------------------------------------------------
+typedef struct {
+    uint      fileMagic[4] <comment="Magic Lantern Video file header">;
+    uint32    blockSize <comment="size of the whole header">;
+    uint      versionString[8] <comment="null-terminated C-string of the exact revision of this format">;
+
+    // I had to comment out all the below to make `xRes` and `yRes` line up
+
+    // uint64    fileGuid <comment="UID of the file (group) generated using hw counter, time of day and PRNG">;
+    // uint16    fileNum <comment="the ID within fileCount this file has (0 to fileCount-1)">;
+    // uint16    fileCount <comment="how many files belong to this group (splitting or parallel)">;
+    // uint32    fileFlags <comment="1=out-of-order data, 2=dropped frames, 4=single image mode, 8=stopped due to error">;
+    // uint16    videoClass <comment="0=none, 1=RAW, 2=YUV, 3=JPEG, 4=H.264">;
+    // uint16    audioClass <comment="0=none, 1=WAV">;
+    // uint32    videoFrameCount <comment="number of video frames in this file. set to 0 on start, updated when finished.">;
+    // uint32    audioFrameCount <comment="number of audio frames in this file. set to 0 on start, updated when finished.">;
+    // uint32    sourceFpsNom <comment="configured fps in 1/s multiplied by sourceFpsDenom">;
+    // uint32    sourceFpsDenom <comment="denominator for fps. usually set to 1000, but may be 1001 for NTSC">;
+} mlv_file_hdr_t;
+
+typedef struct {
+    // uint     blockType[4]; // `xRes` and `yRes` don't line up when `blockType` is an array
+    uint     blockType <comment="when videoClass is RAW, this block will contain detailed format information">;
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint16    xRes <comment="Configured video resolution, may differ from payload resolution">;
+    uint16    yRes <comment="Configured video resolution, may differ from payload resolution">;
+
+    // I haven't tackled this yet
+    // struct raw_info raw_info;    /* the raw_info structure delivered by raw.h of ML Core */
+} mlv_rawi_hdr_t;
+
+
+    mlv_file_hdr_t    MLVI;
+    mlv_rawi_hdr_t    RAWI;
+    // mlv_rawc_hdr_t    RAWC;
+    // mlv_idnt_hdr_t    IDNT;
+    // mlv_expo_hdr_t    EXPO;
+    // mlv_lens_hdr_t    LENS;
+    // mlv_elns_hdr_t    ELNS;
+    // mlv_rtci_hdr_t    RTCI;
+    // mlv_wbal_hdr_t    WBAL;
+    // mlv_wavi_hdr_t    WAVI;
+    // mlv_diso_hdr_t    DISO;
+    // mlv_info_hdr_t    INFO;
+    // mlv_styl_hdr_t    STYL;
+    // mlv_vers_hdr_t    VERS;
+    // mlv_dark_hdr_t    DARK;
+    // mlv_vidf_hdr_t    VIDF; /* One of many VIDFs(don't know if they're different) */
+    // mlv_audf_hdr_t    AUDF; /* Last AUDF header read */
