@@ -3,7 +3,7 @@
 //
 //      File: MLV.bt
 //   Authors: Timothy Nelson
-//   Version: 0.01
+//   Version: 0.02
 //   Purpose: Parse MLV files
 //  Category: Video
 // File Mask: N/A
@@ -11,51 +11,611 @@
 //   History: N/A
 //------------------------------------------------
 typedef struct {
-    uint      fileMagic[4] <comment="Magic Lantern Video file header">;
+    uchar     fileMagic[4] <comment="Magic Lantern Video file header">;
     uint32    blockSize <comment="size of the whole header">;
-    uint      versionString[8] <comment="null-terminated C-string of the exact revision of this format">;
-
-    // I had to comment out all the below to make `xRes` and `yRes` line up
-
-    // uint64    fileGuid <comment="UID of the file (group) generated using hw counter, time of day and PRNG">;
-    // uint16    fileNum <comment="the ID within fileCount this file has (0 to fileCount-1)">;
-    // uint16    fileCount <comment="how many files belong to this group (splitting or parallel)">;
-    // uint32    fileFlags <comment="1=out-of-order data, 2=dropped frames, 4=single image mode, 8=stopped due to error">;
-    // uint16    videoClass <comment="0=none, 1=RAW, 2=YUV, 3=JPEG, 4=H.264">;
-    // uint16    audioClass <comment="0=none, 1=WAV">;
-    // uint32    videoFrameCount <comment="number of video frames in this file. set to 0 on start, updated when finished.">;
-    // uint32    audioFrameCount <comment="number of audio frames in this file. set to 0 on start, updated when finished.">;
-    // uint32    sourceFpsNom <comment="configured fps in 1/s multiplied by sourceFpsDenom">;
-    // uint32    sourceFpsDenom <comment="denominator for fps. usually set to 1000, but may be 1001 for NTSC">;
+    uchar     versionString[8] <comment="null-terminated C-string of the exact revision of this format">;
+    uint64    fileGuid <comment="UID of the file (group) generated using hw counter, time of day and PRNG">;
+    uint16    fileNum <comment="the ID within fileCount this file has (0 to fileCount-1)">;
+    uint16    fileCount <comment="how many files belong to this group (splitting or parallel)">;
+    uint32    fileFlags <comment="1=out-of-order data, 2=dropped frames, 4=single image mode, 8=stopped due to error">;
+    uint16    videoClass <comment="0=none, 1=RAW, 2=YUV, 3=JPEG, 4=H.264">;
+    uint16    audioClass <comment="0=none, 1=WAV">;
+    uint32    videoFrameCount <comment="number of video frames in this file. set to 0 on start, updated when finished.">;
+    uint32    audioFrameCount <comment="number of audio frames in this file. set to 0 on start, updated when finished.">;
+    uint32    sourceFpsNom <comment="configured fps in 1/s multiplied by sourceFpsDenom">;
+    uint32    sourceFpsDenom <comment="denominator for fps. usually set to 1000, but may be 1001 for NTSC">;
 } mlv_file_hdr_t;
 
-typedef struct {
-    // uint     blockType[4]; // `xRes` and `yRes` don't line up when `blockType` is an array
-    uint     blockType <comment="when videoClass is RAW, this block will contain detailed format information">;
+typedef struct jpeg
+{
+    int32 x <comment="DNG JPEG left corner">;
+    int32 y <comment="DNG JPEG top corner">;
+    int32 width <comment="DNG JPEG size">;
+    int32 height <comment="DNG JPEG size">;
+};
+
+// typedef struct crop
+// {
+//     int32 origin[2];
+//     int32 size[2];
+// };
+
+typedef struct dng_jpeg_info
+{
+    jpeg jpg;
+    // crop crp;
+};
+
+typedef struct active_area
+{
+    int32 y1, x1, y2, x2;
+};
+
+typedef struct dng_active_sensor_area
+{
+    active_area activearea;
+    // int32 dng_active_area[4];
+};
+
+typedef struct raw_info {
+    uint32 api_version <comment="increase this when changing the structure">;
+    uint32 pointer <comment="points to image data">;
+    int32 height, width, pitch;
+    int32 frame_size;
+    int32 bits_per_pixel <comment="14">;
+    int32 black_level <comment="autodetected">;
+    int32 white_level <comment="Somewhere around 13000 - 16000, varies with camera, settings etc. \nWould be best to autodetect it, but we can't do this reliably yet">;
+    dng_jpeg_info dngjpeg_info <comment="DNG JPEG info">;
+    dng_active_sensor_area dngactivesensorarea <comment="DNG active sensor area (Y1, X1, Y2, X2)">;
+    int32 exposure_bias[2] <comment="DNG Exposure Bias (idk what's that)">;
+    int32 cfa_pattern <comment="stick to 0x02010100 (RGBG) if you can">;
+    int32 calibration_illuminant1;
+    int32 color_matrix1[18] <comment="DNG Color Matrix">;
+    int32 dynamic_range <comment="EV x100, from analyzing black level and noise (very close to DxO)">;
+};
+
+typedef struct mlv_rawi_hdr_t {
+    uchar     blockType[4] <comment="when videoClass is RAW, this block will contain detailed format information">;
     uint32    blockSize <comment="total frame size">;
     uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
     uint16    xRes <comment="Configured video resolution, may differ from payload resolution">;
     uint16    yRes <comment="Configured video resolution, may differ from payload resolution">;
+    raw_info ri <comment="the raw_info structure delivered by raw.h of ML Core">;
+};
 
-    // I haven't tackled this yet
-    // struct raw_info raw_info;    /* the raw_info structure delivered by raw.h of ML Core */
-} mlv_rawi_hdr_t;
+typedef struct sensor_attributes
+{
+    uint16 sensor_res_x <comment="sensor resolution">;
+    uint16 sensor_res_y <comment="2-3 GPixel cameras anytime soon? (to overflow this)">;
+    uint16 sensor_crop <comment="sensor crop factor x100">;
+    uint16 reserved <comment="reserved for future use">;
+};
 
+typedef struct video_mode_attributes
+{
+    uchar  binning_x <comment="3 (1080p and 720p); 1 (crop, zoom)">;
+    uchar  skipping_x <comment="so far, 0 everywhere">;
+    uchar  binning_y <comment="1 (most cameras in 1080/720p; also all crop modes); 3 (5D3 1080p); 5 (5D3 720p)">;
+    uchar  skipping_y <comment="2 (most cameras in 1080p); 4 (most cameras in 720p); 0 (5D3)">;
+    int16  offset_x <comment="crop offset (top-left active pixel) - optional (SHRT_MIN if unknown)">;
+    int16  offset_y <comment="relative to top-left active pixel from a full-res image (FRSP or CR2)">;
+};
 
-    mlv_file_hdr_t    MLVI;
-    mlv_rawi_hdr_t    RAWI;
-    // mlv_rawc_hdr_t    RAWC;
-    // mlv_idnt_hdr_t    IDNT;
-    // mlv_expo_hdr_t    EXPO;
-    // mlv_lens_hdr_t    LENS;
-    // mlv_elns_hdr_t    ELNS;
-    // mlv_rtci_hdr_t    RTCI;
-    // mlv_wbal_hdr_t    WBAL;
-    // mlv_wavi_hdr_t    WAVI;
-    // mlv_diso_hdr_t    DISO;
-    // mlv_info_hdr_t    INFO;
-    // mlv_styl_hdr_t    STYL;
-    // mlv_vers_hdr_t    VERS;
-    // mlv_dark_hdr_t    DARK;
-    // mlv_vidf_hdr_t    VIDF; /* One of many VIDFs(don't know if they're different) */
-    // mlv_audf_hdr_t    AUDF; /* Last AUDF header read */
+typedef struct {
+    uchar     blockType[4] <comment="RAWC - raw image capture information">;
+    uint32    blockSize <comment="sizeof(mlv_rawc_hdr_t)">;
+    uint64    timestamp <comment="hardware counter timestamp">;
+
+    /* see struct raw_capture_info from raw.h */
+
+    sensor_attributes sensorattributes <comment="sensor attributes: resolution, crop factor">;
+    
+    video_mode_attributes videomodeattributes <comment="video mode attribute (how the sensor is configured for image capture) subsampling factor: (binning_x+skipping_x) x (binning_y+skipping_y)">;
+    /* The captured *active* area (raw_info.active_area) will be mapped
+     * on a full-res image (which does not use subsampling) as follows:
+     *   active_width  = raw_info.active_area.x2 - raw_info.active_area.x1
+     *   active_height = raw_info.active_area.y2 - raw_info.active_area.y1
+     *   .x1 (left)  : offset_x + full_res.active_area.x1
+     *   .y1 (top)   : offset_y + full_res.active_area.y1
+     *   .x2 (right) : offset_x + active_width  * (binning_x+skipping_x) + full_res.active_area.x1
+     *   .y2 (bottom): offset_y + active_height * (binning_y+skipping_y) + full_res.active_area.y1
+     */
+}  mlv_rawc_hdr_t;
+
+typedef struct {
+    uchar     blockType[4];
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uchar     cameraName[32] <comment="PROP (0x00000002), offset 0, length 32">;
+    uint32    cameraModel <comment="PROP (0x00000002), offset 32, length 4">;
+    uchar     cameraSerial[32] <comment="Camera serial number (if available)">;
+}  mlv_idnt_hdr_t;
+
+typedef struct {
+    uchar     blockType[4];
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint32    isoMode <comment="0=manual, 1=auto">;
+    uint32    isoValue <comment="camera delivered ISO value">;
+    uint32    isoAnalog <comment="ISO obtained by hardware amplification (most full-stop ISOs, except extreme values)">;
+    uint32    digitalGain <comment="digital ISO gain (1024 = 1 EV) - it's not baked in the raw data, so you may want to scale it or adjust the white level">;
+    uint64    shutterValue <comment="exposure time in microseconds">;
+}  mlv_expo_hdr_t;
+
+typedef struct {
+    uchar     blockType[4];
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint16    focalLength <comment="in mm">;
+    uint16    focalDist <comment="in mm (65535 = infinite)">;
+    uint16    aperture <comment="f-number * 100">;
+    uchar     stabilizerMode <comment="0=off, 1=on, (is the new L mode relevant)">;
+    uchar     autofocusMode <comment="0=off, 1=on">;
+    uint32    flags <comment="1=CA avail, 2=Vign avail, ...">;
+    uint32    lensID <comment="hexadecimal lens ID (delivered by properties?)">;
+    uchar     lensName[32] <comment="full lens string">;
+    uchar     lensSerial[32] <comment="full lens serial number">;
+}  mlv_lens_hdr_t;
+
+// typedef struct {
+//     uchar     blockType[4] <comment="ELNS - Extended LENS block with longer lens name and optional fields, depending on camera">;
+//     uint32    blockSize;
+//     uint64    timestamp;
+//     uint16    focalLengthMin <comment="shortest focal length in mm">;
+//     uint16    focalLengthMax <comment="longest focal length in mm">;
+//     uint16    apertureMin <comment="lowest f-number * 100">;
+//     uint16    apertureMax <comment="highest f-number * 100">;
+//     uint32    version <comment="lens internal version number, if available">;
+//     uchar     extenderInfo <comment="extender information, if provided by camera">;
+//     uchar     capabilities <comment="capability information, if provided by camera">;
+//     uchar     chipped <comment="when not zero, lens is communicating with camera">;
+//     uchar     lensName[13] <comment="full lens string, null terminated">;
+// }  mlv_elns_hdr_t;
+
+typedef struct {
+    uchar     blockType[4];
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint16    tm_sec <comment="seconds (0-59)">;
+    uint16    tm_min <comment="minute (0-59)">;
+    uint16    tm_hour <comment="hour (0-23)">;
+    uint16    tm_mday <comment="day of month (1-31)">;
+    uint16    tm_mon <comment="month (0-11)">;
+    uint16    tm_year <comment="year since 1900">;
+    uint16    tm_wday <comment="day of week">;
+    uint16    tm_yday <comment="day of year">;
+    uint16    tm_isdst <comment="daylight saving">;
+    uint16    tm_gmtoff <comment="GMT offset">;
+    uchar     tm_zone[8] <comment="time zone string">;
+}  mlv_rtci_hdr_t;
+
+typedef struct {
+    uchar     blockType[4] <comment="White balance info">;
+    uint32    blockSize;
+    uint64    timestamp;
+    uint32    wb_mode <comment="WB_AUTO 0, WB_SUNNY 1, WB_SHADE 8, WB_CLOUDY 2, WB_TUNGSTEN 3, WB_FLUORESCENT 4, WB_FLASH 5, WB_CUSTOM 6, WB_KELVIN 9">;
+    uint32    kelvin <comment="only when wb_mode is WB_KELVIN">;
+    uint32    wbgain_r <comment="only when wb_mode is WB_CUSTOM">;
+    uint32    wbgain_g <comment="1024 = 1.0">;
+    uint32    wbgain_b <comment="note: it's 1/canon_gain (uses dcraw convention)">;
+    uint32    wbs_gm <comment="WBShift (no idea how to use these in post)">;
+    uint32    wbs_ba <comment="range: -9...9">;
+}  mlv_wbal_hdr_t;
+
+typedef struct {
+    uchar     blockType[4] <comment="VERS - Version information block, appears once per module">;
+    uint32    blockSize;
+    uint64    timestamp;
+    uint32    length <comment="to allow that data can be of arbitrary length and blocks are padded to 32 bits, so store real length">;
+    uchar     stringData[blockSize-(sizeof(blockType)+sizeof(blockSize)+sizeof(timestamp)+sizeof(length))] <comment="Version string, e.g. \"ml-core 20130912\", \"mlv_rec v2.1\" or \"mlv_lite 0d3fbdaf crop_rec_8k\" general format \"<module_name> <version_information>\" where <module_name> must not contain spaces whereas <version_information> may be of any characters in UTF-8 format">;
+}  mlv_vers_hdr_t;
+
+typedef struct {
+    uchar     blockType[4] <comment="Dual-ISO information">;
+    uint32    blockSize;
+    uint64    timestamp;
+    uint32    dualMode <comment="bitmask: 0=off, 1=odd lines, 2=even lines, upper bits may be defined later">;
+    uint32    isoValue;
+}  mlv_diso_hdr_t;
+
+typedef struct {
+    uchar     blockType[4] <comment="when audioClass is WAV, this block contains format details  compatible to RIFF">;
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint16    format <comment="1=Integer PCM, 6=alaw, 7=mulaw">;
+    uint16    channels <comment="audio channel count: 1=mono, 2=stereo">;
+    uint32    samplingRate <comment="audio sampling rate in 1/s">;
+    uint32    bytesPerSecond <comment="audio data rate">;
+    uint16    blockAlign <comment="see RIFF WAV hdr description">;
+    uint16    bitsPerSample <comment="audio ADC resolution">;
+}  mlv_wavi_hdr_t;
+
+typedef struct {
+    uchar     blockType[4];
+    uint32    blockSize;
+    uint64    timestamp;
+    FSkip(blockSize-(sizeof(blockType)+sizeof(blockSize)+sizeof(timestamp)));
+} mlv_hdr_t;
+
+typedef struct {
+    uchar     blockType[4] <comment="this block contains one frame of video data">;
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint32    frameNumber <comment="unique video frame number">;
+    uint16    cropPosX <comment="specifies from which sensor row/col the video frame was copied (8x2 blocks)">;
+    uint16    cropPosY <comment="(can be used to process dead/hot pixels)">;
+    uint16    panPosX <comment="specifies the panning offset which is cropPos, but with higher resolution (1x1 blocks)">;
+    uint16    panPosY <comment="(it's the frame area from sensor the user wants to see)">;
+    uint32    frameSpace <comment="size of dummy data before frameData starts, necessary for EDMAC alignment">;
+    FSkip(frameSpace);
+    uchar     frameData[blockSize-frameSpace-(
+        sizeof(blockType)+
+        sizeof(blockSize)+
+        sizeof(timestamp)+
+        sizeof(frameNumber)+
+        sizeof(cropPosX)+
+        sizeof(cropPosY)+
+        sizeof(panPosX)+
+        sizeof(panPosY)+
+        sizeof(frameSpace))];
+}  mlv_vidf_hdr_t;
+
+typedef struct {
+    uchar     blockType[4] <comment="this block contains audio data">;
+    uint32    blockSize <comment="total frame size">;
+    uint64    timestamp <comment="hardware counter timestamp for this frame (relative to recording start)">;
+    uint32    frameNumber <comment="unique audio frame number">;
+    uint32    frameSpace <comment="size of dummy data before frameData starts, necessary for EDMAC alignment">;
+    uchar     frameData[blockSize-(
+        sizeof(blockType)+
+        sizeof(blockSize)+
+        sizeof(timestamp)+
+        sizeof(frameNumber)+
+        sizeof(frameSpace))];
+}  mlv_audf_hdr_t;
+
+mlv_file_hdr_t    MLVI;
+mlv_rawi_hdr_t    RAWI;
+mlv_rawc_hdr_t    RAWC;
+mlv_idnt_hdr_t    IDNT;
+mlv_expo_hdr_t    EXPO;
+mlv_lens_hdr_t    LENS;
+// mlv_elns_hdr_t    ELNS;
+mlv_rtci_hdr_t    RTCI;
+mlv_wbal_hdr_t    WBAL;
+// mlv_info_hdr_t    INFO;
+// mlv_styl_hdr_t    STYL;
+mlv_vers_hdr_t    VERS1;
+mlv_vers_hdr_t    VERS2;
+mlv_vers_hdr_t    VERS3;
+mlv_vers_hdr_t    VERS4;
+mlv_vers_hdr_t    VERS5;
+mlv_vers_hdr_t    VERS6;
+mlv_vers_hdr_t    VERS7;
+mlv_vers_hdr_t    VERS8;
+mlv_vers_hdr_t    VERS9;
+mlv_diso_hdr_t    DISO;
+mlv_wavi_hdr_t    WAVI;
+mlv_hdr_t         NULL1;
+// mlv_dark_hdr_t    DARK;
+mlv_vidf_hdr_t    VIDF;
+mlv_audf_hdr_t    AUDF1;
+mlv_audf_hdr_t    AUDF2;
+mlv_hdr_t NULL2;
+mlv_hdr_t NULL3;
+mlv_hdr_t NULL4;
+mlv_hdr_t NULL5;
+mlv_hdr_t NULL6;
+mlv_hdr_t NULL7;
+mlv_hdr_t NULL8;
+mlv_hdr_t NULL9;
+mlv_hdr_t NULL10;
+mlv_hdr_t NULL11;
+mlv_hdr_t NULL12;
+mlv_hdr_t NULL13;
+mlv_hdr_t NULL14;
+mlv_hdr_t NULL15;
+mlv_hdr_t NULL16;
+mlv_hdr_t NULL17;
+mlv_hdr_t NULL18;
+mlv_hdr_t NULL19;
+mlv_hdr_t NULL20;
+mlv_hdr_t NULL21;
+mlv_hdr_t NULL22;
+mlv_hdr_t NULL23;
+mlv_hdr_t NULL24;
+mlv_hdr_t NULL25;
+mlv_hdr_t NULL26;
+mlv_hdr_t NULL27;
+mlv_hdr_t NULL28;
+mlv_hdr_t NULL29;
+mlv_hdr_t NULL30;
+mlv_hdr_t NULL31;
+mlv_hdr_t NULL32;
+mlv_hdr_t NULL33;
+mlv_hdr_t NULL34;
+mlv_hdr_t NULL35;
+mlv_hdr_t NULL36;
+mlv_hdr_t NULL37;
+mlv_hdr_t NULL38;
+mlv_hdr_t NULL39;
+mlv_hdr_t NULL40;
+mlv_hdr_t NULL41;
+mlv_hdr_t NULL42;
+mlv_hdr_t NULL43;
+mlv_hdr_t NULL44;
+mlv_hdr_t NULL45;
+mlv_hdr_t NULL46;
+mlv_hdr_t NULL47;
+mlv_hdr_t NULL48;
+mlv_hdr_t NULL49;
+mlv_hdr_t NULL50;
+mlv_hdr_t NULL51;
+mlv_hdr_t NULL52;
+mlv_hdr_t NULL53;
+mlv_hdr_t NULL54;
+mlv_hdr_t NULL55;
+mlv_hdr_t NULL56;
+mlv_hdr_t NULL57;
+mlv_hdr_t NULL58;
+mlv_hdr_t NULL59;
+mlv_hdr_t NULL60;
+mlv_hdr_t NULL61;
+mlv_hdr_t NULL62;
+mlv_hdr_t NULL63;
+mlv_hdr_t NULL64;
+mlv_hdr_t NULL65;
+mlv_hdr_t NULL66;
+mlv_hdr_t NULL67;
+mlv_hdr_t NULL68;
+mlv_hdr_t NULL69;
+mlv_hdr_t NULL70;
+mlv_hdr_t NULL71;
+mlv_hdr_t NULL72;
+mlv_hdr_t NULL73;
+mlv_hdr_t NULL74;
+mlv_hdr_t NULL75;
+mlv_hdr_t NULL76;
+mlv_hdr_t NULL77;
+mlv_hdr_t NULL78;
+mlv_hdr_t NULL79;
+mlv_hdr_t NULL80;
+mlv_hdr_t NULL81;
+mlv_hdr_t NULL82;
+mlv_hdr_t NULL83;
+mlv_hdr_t NULL84;
+mlv_hdr_t NULL85;
+mlv_hdr_t NULL86;
+mlv_hdr_t NULL87;
+mlv_hdr_t NULL88;
+mlv_hdr_t NULL89;
+mlv_hdr_t NULL90;
+mlv_hdr_t NULL91;
+mlv_hdr_t NULL92;
+mlv_hdr_t NULL93;
+mlv_hdr_t NULL94;
+mlv_hdr_t NULL95;
+mlv_hdr_t NULL96;
+mlv_hdr_t NULL97;
+mlv_hdr_t NULL98;
+mlv_hdr_t NULL99;
+mlv_hdr_t NULL100;
+mlv_hdr_t NULL101;
+mlv_hdr_t NULL102;
+mlv_hdr_t NULL103;
+mlv_hdr_t NULL104;
+mlv_hdr_t NULL105;
+mlv_hdr_t NULL106;
+mlv_hdr_t NULL107;
+mlv_hdr_t NULL108;
+mlv_hdr_t NULL109;
+mlv_hdr_t NULL110;
+mlv_hdr_t NULL111;
+mlv_hdr_t NULL112;
+mlv_hdr_t NULL113;
+mlv_hdr_t NULL114;
+mlv_hdr_t NULL115;
+mlv_hdr_t NULL116;
+mlv_hdr_t NULL117;
+mlv_hdr_t NULL118;
+mlv_hdr_t NULL119;
+mlv_hdr_t NULL120;
+mlv_hdr_t NULL121;
+mlv_hdr_t NULL122;
+mlv_hdr_t NULL123;
+mlv_hdr_t NULL124;
+mlv_hdr_t NULL125;
+mlv_hdr_t NULL126;
+mlv_hdr_t NULL127;
+mlv_hdr_t NULL128;
+mlv_hdr_t NULL129;
+mlv_hdr_t NULL130;
+mlv_hdr_t NULL131;
+mlv_hdr_t NULL132;
+mlv_hdr_t NULL133;
+mlv_hdr_t NULL134;
+mlv_hdr_t NULL135;
+mlv_hdr_t NULL136;
+mlv_hdr_t NULL137;
+mlv_hdr_t NULL138;
+mlv_hdr_t NULL139;
+mlv_hdr_t NULL140;
+mlv_hdr_t NULL141;
+mlv_hdr_t NULL142;
+mlv_hdr_t NULL143;
+mlv_hdr_t NULL144;
+mlv_hdr_t NULL145;
+mlv_hdr_t NULL146;
+mlv_hdr_t NULL147;
+mlv_hdr_t NULL148;
+mlv_hdr_t NULL149;
+mlv_hdr_t NULL150;
+mlv_hdr_t NULL151;
+mlv_hdr_t NULL152;
+mlv_hdr_t NULL153;
+mlv_hdr_t NULL154;
+mlv_hdr_t NULL155;
+mlv_hdr_t NULL156;
+mlv_hdr_t NULL157;
+mlv_hdr_t NULL158;
+mlv_hdr_t NULL159;
+mlv_hdr_t NULL160;
+mlv_hdr_t NULL161;
+mlv_hdr_t NULL162;
+mlv_hdr_t NULL163;
+mlv_hdr_t NULL164;
+mlv_hdr_t NULL165;
+mlv_hdr_t NULL166;
+mlv_hdr_t NULL167;
+mlv_hdr_t NULL168;
+mlv_hdr_t NULL169;
+mlv_hdr_t NULL170;
+mlv_hdr_t NULL171;
+mlv_hdr_t NULL172;
+mlv_hdr_t NULL173;
+mlv_hdr_t NULL174;
+mlv_hdr_t NULL175;
+mlv_hdr_t NULL176;
+mlv_hdr_t NULL177;
+mlv_hdr_t NULL178;
+mlv_hdr_t NULL179;
+mlv_hdr_t NULL180;
+mlv_hdr_t NULL181;
+mlv_hdr_t NULL182;
+mlv_hdr_t NULL183;
+mlv_hdr_t NULL184;
+mlv_hdr_t NULL185;
+mlv_hdr_t NULL186;
+mlv_hdr_t NULL187;
+mlv_hdr_t NULL188;
+mlv_hdr_t NULL189;
+mlv_hdr_t NULL190;
+mlv_hdr_t NULL191;
+mlv_hdr_t NULL192;
+mlv_hdr_t NULL193;
+mlv_hdr_t NULL194;
+mlv_hdr_t NULL195;
+mlv_hdr_t NULL196;
+mlv_hdr_t NULL197;
+mlv_hdr_t NULL198;
+mlv_hdr_t NULL199;
+mlv_hdr_t NULL200;
+mlv_hdr_t NULL201;
+mlv_hdr_t NULL202;
+mlv_hdr_t NULL203;
+mlv_hdr_t NULL204;
+mlv_hdr_t NULL205;
+mlv_hdr_t NULL206;
+mlv_hdr_t NULL207;
+mlv_hdr_t NULL208;
+mlv_hdr_t NULL209;
+mlv_hdr_t NULL210;
+mlv_hdr_t NULL211;
+mlv_hdr_t NULL212;
+mlv_hdr_t NULL213;
+mlv_hdr_t NULL214;
+mlv_hdr_t NULL215;
+mlv_hdr_t NULL216;
+mlv_hdr_t NULL217;
+mlv_hdr_t NULL218;
+mlv_hdr_t NULL219;
+mlv_hdr_t NULL220;
+mlv_hdr_t NULL221;
+mlv_hdr_t NULL222;
+mlv_hdr_t NULL223;
+mlv_hdr_t NULL224;
+mlv_hdr_t NULL225;
+mlv_hdr_t NULL226;
+mlv_hdr_t NULL227;
+mlv_hdr_t NULL228;
+mlv_hdr_t NULL229;
+mlv_hdr_t NULL230;
+mlv_hdr_t NULL231;
+mlv_hdr_t NULL232;
+mlv_hdr_t NULL233;
+mlv_hdr_t NULL234;
+mlv_hdr_t NULL235;
+mlv_hdr_t NULL236;
+mlv_hdr_t NULL237;
+mlv_hdr_t NULL238;
+mlv_hdr_t NULL239;
+mlv_hdr_t NULL240;
+mlv_hdr_t NULL241;
+mlv_hdr_t NULL242;
+mlv_hdr_t NULL243;
+mlv_hdr_t NULL244;
+mlv_hdr_t NULL245;
+mlv_hdr_t NULL246;
+mlv_hdr_t NULL247;
+mlv_hdr_t NULL248;
+mlv_hdr_t NULL249;
+mlv_hdr_t NULL250;
+mlv_hdr_t NULL251;
+mlv_hdr_t NULL252;
+mlv_hdr_t NULL253;
+mlv_hdr_t NULL254;
+mlv_hdr_t NULL255;
+mlv_hdr_t NULL256;
+mlv_hdr_t NULL257;
+mlv_hdr_t NULL258;
+mlv_hdr_t NULL259;
+mlv_hdr_t NULL260;
+mlv_hdr_t NULL261;
+mlv_hdr_t NULL262;
+mlv_hdr_t NULL263;
+mlv_hdr_t NULL264;
+mlv_hdr_t NULL265;
+mlv_hdr_t NULL266;
+mlv_hdr_t NULL267;
+mlv_hdr_t NULL268;
+mlv_hdr_t NULL269;
+mlv_hdr_t NULL270;
+mlv_hdr_t NULL271;
+mlv_hdr_t NULL272;
+mlv_hdr_t NULL273;
+mlv_hdr_t NULL274;
+mlv_hdr_t NULL275;
+mlv_hdr_t NULL276;
+mlv_hdr_t NULL277;
+mlv_hdr_t NULL278;
+mlv_hdr_t NULL279;
+mlv_hdr_t NULL280;
+mlv_hdr_t NULL281;
+mlv_hdr_t NULL282;
+mlv_hdr_t NULL283;
+mlv_hdr_t NULL284;
+mlv_hdr_t NULL285;
+mlv_hdr_t NULL286;
+mlv_hdr_t NULL287;
+mlv_hdr_t NULL288;
+mlv_hdr_t NULL289;
+mlv_hdr_t NULL290;
+mlv_hdr_t NULL291;
+mlv_hdr_t NULL292;
+mlv_hdr_t NULL293;
+mlv_hdr_t NULL294;
+mlv_hdr_t NULL295;
+mlv_hdr_t NULL296;
+mlv_hdr_t NULL297;
+mlv_hdr_t NULL298;
+mlv_hdr_t NULL299;
+mlv_hdr_t NULL300;
+mlv_hdr_t NULL301;
+mlv_hdr_t NULL302;
+mlv_hdr_t NULL303;
+mlv_hdr_t NULL304;
+mlv_hdr_t NULL305;
+mlv_hdr_t NULL306;
+mlv_hdr_t NULL307;
+mlv_hdr_t NULL308;
+mlv_hdr_t NULL309;
+mlv_hdr_t NULL310;
+mlv_hdr_t NULL311;
+mlv_hdr_t NULL312;
+mlv_hdr_t NULL313;
+mlv_hdr_t NULL314;
+mlv_hdr_t NULL315;
+mlv_hdr_t NULL316;
+mlv_hdr_t NULL317;
+mlv_hdr_t NULL318;
+mlv_hdr_t NULL319;
